@@ -340,13 +340,38 @@ const App: React.FC = () => {
     setLoading(true);
 
     try {
+      // Validate and normalize type value
+      const validTypes = ['builder', 'project', 'investor'];
+      const profileType = (data.type && validTypes.includes(data.type)) 
+        ? data.type 
+        : 'builder';
+
+      // Ensure required fields with defaults
+      const profileData = {
+        ...data,
+        user_id: currentUser.id,
+        type: profileType, // Normalized type value
+        name: data.name || '',
+        niches: data.niches || [],
+        likes_today: data.likes_today ?? 20, // Default daily likes
+        is_premium: data.is_premium ?? false,
+      };
+
       const { data: newProfile, error } = await supabase
         .from('profiles')
-        .insert([{ ...data, user_id: currentUser.id }])
+        .insert([profileData])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Profile creation error:', error);
+        console.error('Profile data sent:', profileData);
+        // Provide more specific error message
+        if (error.message?.includes('profiles_type_check')) {
+          throw new Error(`Invalid profile type. Allowed values: builder, project, investor. You sent: ${profileData.type}`);
+        }
+        throw error;
+      }
 
       if (newProfile) {
         setProfile(newProfile);
@@ -356,6 +381,7 @@ const App: React.FC = () => {
         showToast('Welcome to Seeker! ⚡', 'success');
       }
     } catch (err: any) {
+      console.error('Create profile error:', err);
       showToast(err.message || 'Failed to create profile', 'error');
     } finally {
       setLoading(false);
@@ -544,7 +570,17 @@ const App: React.FC = () => {
             )}
 
             <button
-              onClick={() => createProfile(formData)}
+              onClick={() => {
+                if (!formData.name.trim()) {
+                  showToast('Please enter your name', 'error');
+                  return;
+                }
+                if (formData.niches.length === 0) {
+                  showToast('Please select at least one niche', 'error');
+                  return;
+                }
+                createProfile(formData);
+              }}
               className="w-full bg-gradient-to-r from-purple-600 to-cyan-500 text-white py-4 rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
               disabled={loading}
             >
