@@ -39,6 +39,21 @@ interface Match {
 const NICHES = ['DeFi', 'NFTs', 'Gaming', 'Infrastructure', 'DAOs', 'Payments', 'Social', 'Tooling', 'Memecoins', 'DePIN'];
 const STAGES = ['Idea', 'Building', 'Beta', 'Launched', 'Scaling'];
 
+// Helper to normalize type (database uses capitalized, code uses lowercase)
+const normalizeType = (type: string): 'builder' | 'project' | 'investor' => {
+  const lower = type.toLowerCase();
+  if (lower === 'builder' || lower === 'project' || lower === 'investor') {
+    return lower as 'builder' | 'project' | 'investor';
+  }
+  return 'builder';
+};
+
+// Helper to capitalize type for database
+const capitalizeType = (type: string): string => {
+  const normalized = normalizeType(type);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
 const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) => (
   <div className={`fixed top-4 right-4 left-4 mx-auto max-w-sm z-50 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 ${
     type === 'success' ? 'bg-gradient-to-r from-green-500 to-emerald-500' : 
@@ -102,10 +117,12 @@ const App: React.FC = () => {
         .single();
 
       if (data) {
-        setProfile(data);
+        // Normalize type from database (capitalized) to lowercase for code
+        const normalizedProfile = { ...data, type: normalizeType(data.type) };
+        setProfile(normalizedProfile);
         setScreen('feed');
-        await loadFeed(data);
-        await loadBookmarkIds(data.id);
+        await loadFeed(normalizedProfile);
+        await loadBookmarkIds(normalizedProfile.id);
       } else if (error?.code === 'PGRST116') {
         setScreen('onboarding');
       }
@@ -119,9 +136,10 @@ const App: React.FC = () => {
   const loadFeed = async (userProfile: Profile) => {
     setLoading(true);
     try {
-      const oppositeTypes = userProfile.type === 'builder' ? ['project', 'investor'] : 
-                           userProfile.type === 'project' ? ['builder', 'investor'] : 
-                           ['builder', 'project'];
+      const normalizedType = normalizeType(userProfile.type);
+      const oppositeTypes = normalizedType === 'builder' ? ['Project', 'Investor'] : 
+                           normalizedType === 'project' ? ['Builder', 'Investor'] : 
+                           ['Builder', 'Project'];
       
       let query = supabase
         .from('profiles')
@@ -139,7 +157,9 @@ const App: React.FC = () => {
 
       const { data } = await query;
       if (data) {
-        setFeedProfiles(data);
+        // Normalize types from database (capitalized) to lowercase for code
+        const normalizedProfiles = data.map(p => ({ ...p, type: normalizeType(p.type) }));
+        setFeedProfiles(normalizedProfiles);
       }
     } catch (err) {
       showToast('Failed to load feed', 'error');
@@ -175,7 +195,12 @@ const App: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (data) {
-        setBookmarkedProfiles(data);
+        // Normalize types from database (capitalized) to lowercase for code
+        const normalizedBookmarks = data.map(b => ({
+          ...b,
+          profile: b.profile ? { ...b.profile, type: normalizeType(b.profile.type) } : undefined
+        }));
+        setBookmarkedProfiles(normalizedBookmarks);
       }
     } catch (err) {
       showToast('Failed to load bookmarks', 'error');
@@ -259,7 +284,9 @@ const App: React.FC = () => {
           .single();
 
         if (matchedProfile) {
-          setNewMatch(matchedProfile);
+          // Normalize type from database
+          const normalizedMatch = { ...matchedProfile, type: normalizeType(matchedProfile.type) };
+          setNewMatch(normalizedMatch);
           setShowMatchModal(true);
         }
       } else {
@@ -291,7 +318,9 @@ const App: React.FC = () => {
               .select('*')
               .eq('id', otherId)
               .single();
-            return { ...match, profile: otherProfile };
+            // Normalize type from database
+            const normalizedProfile = otherProfile ? { ...otherProfile, type: normalizeType(otherProfile.type) } : undefined;
+            return { ...match, profile: normalizedProfile };
           })
         );
         setMatches(matchesWithProfiles);
@@ -340,17 +369,14 @@ const App: React.FC = () => {
     setLoading(true);
 
     try {
-      // Validate and normalize type value
-      const validTypes = ['builder', 'project', 'investor'];
-      const profileType = (data.type && validTypes.includes(data.type)) 
-        ? data.type 
-        : 'builder';
+      // Validate and normalize type value - convert to capitalized for database constraint
+      const profileType = capitalizeType(data.type || 'builder');
 
       // Ensure required fields with defaults
       const profileData = {
         ...data,
         user_id: currentUser.id,
-        type: profileType, // Normalized type value
+        type: profileType, // Capitalized type value for database constraint
         name: data.name || '',
         niches: data.niches || [],
         likes_today: data.likes_today ?? 20, // Default daily likes
@@ -374,10 +400,12 @@ const App: React.FC = () => {
       }
 
       if (newProfile) {
-        setProfile(newProfile);
+        // Normalize type from database (capitalized) to lowercase for code
+        const normalizedProfile = { ...newProfile, type: normalizeType(newProfile.type) };
+        setProfile(normalizedProfile);
         setScreen('feed');
-        await loadFeed(newProfile);
-        await loadBookmarkIds(newProfile.id);
+        await loadFeed(normalizedProfile);
+        await loadBookmarkIds(normalizedProfile.id);
         showToast('Welcome to Seeker! ⚡', 'success');
       }
     } catch (err: any) {
