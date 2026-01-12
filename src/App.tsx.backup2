@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Heart, Bookmark, MessageCircle, User, Settings, Zap, Sparkles, LogOut, Filter, Loader2, AlertCircle, X, Check } from 'lucide-react';
 
@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 interface Profile {
   id: string;
   user_id: string;
-  type: 'project' | 'investor';
+  type: 'builder' | 'project' | 'investor';
   name: string;
   bio?: string;
   niches: string[];
@@ -40,18 +40,19 @@ const NICHES = ['SaaS', 'AI/ML', 'FinTech', 'Blockchain', 'HealthTech', 'BioTech
 const STAGES = ['Pre-seed', 'Seed', 'Series A', 'Series B', 'Launched'];
 
 // Helper to normalize type (database uses capitalized, code uses lowercase)
-const normalizeType = (type: string): 'project' | 'investor' => {
+const normalizeType = (type: string): 'builder' | 'project' | 'investor' => {
   const lower = type.toLowerCase();
-  if (lower === 'project' || lower === 'investor') {
-    return lower as 'project' | 'investor';
+  if (lower === 'builder' || lower === 'project' || lower === 'investor') {
+    return lower as 'builder' | 'project' | 'investor';
   }
-  // Map 'startup' to 'project' if user enters 'startup'
-  if (lower === 'startup') {
-    return 'project';
-  }
-  return 'project'; // Default to project
+  return 'builder';
 };
 
+// Helper to capitalize type for database
+const capitalizeType = (type: string): string => {
+  const normalized = normalizeType(type);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
 
 const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) => (
   <div className={`fixed top-4 right-4 left-4 mx-auto max-w-sm z-50 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 ${
@@ -136,7 +137,9 @@ const App: React.FC = () => {
     setLoading(true);
     try {
       const normalizedType = normalizeType(userProfile.type);
-      const oppositeTypes = normalizedType === 'investor' ? ['project'] : ['investor'];
+      const oppositeTypes = normalizedType === 'builder' ? ['Project', 'Investor'] : 
+                           normalizedType === 'project' ? ['Builder', 'Investor'] : 
+                           ['Builder', 'Project'];
       
       let query = supabase
         .from('profiles')
@@ -152,13 +155,7 @@ const App: React.FC = () => {
         query = query.eq('stage', filters.stage);
       }
 
-      const { data, error } = await query;
-      if (error) {
-        console.error('Load feed error:', error);
-        showToast('Failed to load feed', 'error');
-        return;
-      }
-      
+      const { data } = await query;
       if (data) {
         // Normalize types from database (capitalized) to lowercase for code
         const normalizedProfiles = data.map(p => ({ ...p, type: normalizeType(p.type) }));
@@ -186,78 +183,29 @@ const App: React.FC = () => {
     }
   };
 
-  const loadingBookmarksRef = useRef(false);
-
   const loadBookmarks = async () => {
     if (!profile) return;
-    
-    // Prevent multiple simultaneous calls
-    if (loadingBookmarksRef.current) return;
-    loadingBookmarksRef.current = true;
     setLoading(true);
 
     try {
-      const { data: bookmarks, error: bookmarksError } = await supabase
+      const { data } = await supabase
         .from('bookmarks')
-        .select('*')
+        .select('*, profile:profile_id(*)')
         .eq('user_id', profile.id)
         .order('created_at', { ascending: false });
 
-      if (bookmarksError) {
-        console.error('Load bookmarks error:', bookmarksError);
-        console.error('❌ [loadBookmarks] Full error object:', JSON.stringify(bookmarksError, null, 2));
-        console.error('❌ [loadBookmarks] Error message:', bookmarksError.message);
-        console.error('❌ [loadBookmarks] Error details:', bookmarksError.details);
-        console.error('❌ [loadBookmarks] Error hint:', bookmarksError.hint);
-        console.error('❌ [loadBookmarks] Error code:', bookmarksError.code);
-        console.error('❌ Error details:', {
-          message: bookmarksError.message,
-          details: bookmarksError.details,
-          hint: bookmarksError.hint,
-          code: bookmarksError.code
-        });
-        showToast('Failed to load bookmarks', 'error');
-        return;
-      }
-
-      if (bookmarks && bookmarks.length > 0) {
-        // Load all profiles in one query instead of separate requests
-        const profileIds = bookmarks.map(b => b.profile_id);
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('*')
-          .in('id', profileIds);
-
-        if (profilesError) {
-          console.error('Load profiles for bookmarks error:', profilesError);
-          showToast('Failed to load bookmark profiles', 'error');
-          setBookmarkedProfiles([]);
-        setLoading(false);
-          return;
-        }
-
-        // Create a map of profiles by ID for quick lookup
-        const profilesMap = new Map(
-          (profilesData || []).map(profile => [
-            profile.id,
-            { ...profile, type: normalizeType(profile.type) }
-          ])
-        );
-
-        // Match bookmarks with their profiles
-        const bookmarksWithProfiles = bookmarks
-          .map(bookmark => ({
-            ...bookmark,
-            profile: profilesMap.get(bookmark.profile_id)
-          }))
-          .filter(bookmark => bookmark.profile !== undefined);
-        setBookmarkedProfiles(bookmarksWithProfiles);
+      if (data) {
+        // Normalize types from database (capitalized) to lowercase for code
+        const normalizedBookmarks = data.map(b => ({
+          ...b,
+          profile: b.profile ? { ...b.profile, type: normalizeType(b.profile.type) } : undefined
+        }));
+        setBookmarkedProfiles(normalizedBookmarks);
       }
     } catch (err) {
       showToast('Failed to load bookmarks', 'error');
     } finally {
       setLoading(false);
-      loadingBookmarksRef.current = false;
     }
   };
 
@@ -421,14 +369,14 @@ const App: React.FC = () => {
     setLoading(true);
 
     try {
-      // Validate and normalize type value - database uses lowercase
-      const profileType = normalizeType(data.type || 'project');
+      // Validate and normalize type value - convert to capitalized for database constraint
+      const profileType = capitalizeType(data.type || 'builder');
 
       // Ensure required fields with defaults
       const profileData = {
         ...data,
         user_id: currentUser.id,
-        type: profileType, // Lowercase type value for database constraint
+        type: profileType, // Capitalized type value for database constraint
         name: data.name || '',
         niches: data.niches || [],
         likes_today: data.likes_today ?? 20, // Default daily likes
@@ -446,7 +394,7 @@ const App: React.FC = () => {
         console.error('Profile data sent:', profileData);
         // Provide more specific error message
         if (error.message?.includes('profiles_type_check')) {
-          throw new Error(`Invalid profile type. Allowed values: project, investor. You sent: ${profileData.type}`);
+          throw new Error(`Invalid profile type. Allowed values: builder, project, investor. You sent: ${profileData.type}`);
         }
         throw error;
       }
@@ -540,7 +488,7 @@ const App: React.FC = () => {
 
   const OnboardingScreen = () => {
     const [formData, setFormData] = useState({
-      type: 'project' as 'project' | 'investor',
+      type: 'builder' as 'builder' | 'project' | 'investor',
       name: '',
       bio: '',
       niches: [] as string[],
@@ -566,8 +514,8 @@ const App: React.FC = () => {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-300">I am a...</label>
-              <div className="grid grid-cols-2 gap-3">
-                {['project', 'investor'].map(type => (
+              <div className="grid grid-cols-3 gap-3">
+                {['builder', 'project', 'investor'].map(type => (
                   <button
                     key={type}
                     onClick={() => setFormData({ ...formData, type: type as any })}
@@ -765,10 +713,9 @@ const App: React.FC = () => {
 
   const BookmarksScreen = () => {
     useEffect(() => {
-      if (profile && screen === 'bookmarks') {
-        loadBookmarks();
-      }
-    }, [screen]);
+      loadBookmarks();
+    }, []);
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 pb-20">
         <div className="bg-black/40 backdrop-blur-xl shadow-sm p-4 border-b border-white/10 sticky top-0 z-10">
